@@ -1,0 +1,113 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Separar Programas G-code</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Subir archivo G-code</h1>
+        <div class="form-group">
+            <input type="file" id="fileInput" class="form-control-file" accept=".gcode,.txt">
+        </div>
+        <button onclick="processFile()" class="btn btn-primary mb-4">Procesar Archivo</button>
+        <h2>Programas G-code</h2>
+        <table class="table table-bordered" id="programTable">
+            <thead class="thead-dark">
+                <tr>
+                    <th>Programa</th>
+                    <th>Contenido</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Programas G-code se mostrarán aquí -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        function processFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Por favor, suba un archivo primero.');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const content = event.target.result;
+                const programs = separatePrograms(content);
+                displayPrograms(programs);
+            };
+            reader.readAsText(file);
+        }
+
+        function separatePrograms(content) {
+            const regex = /^O\d+.*$/gm;
+            let match;
+            let programs = [];
+            let lastIndex = 0;
+
+            while ((match = regex.exec(content)) !== null) {
+                if (match.index !== 0) {
+                    programs.push(content.substring(lastIndex, match.index).trim());
+                }
+                lastIndex = match.index;
+            }
+            // Add the last program
+            if (lastIndex < content.length) {
+                programs.push(content.substring(lastIndex).trim());
+            }
+
+            return programs;
+        }
+
+        function displayPrograms(programs) {
+            const tableBody = document.getElementById('programTable').getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = '';
+
+            programs.forEach((program, index) => {
+                const row = tableBody.insertRow();
+                const cell1 = row.insertCell(0);
+                const cell2 = row.insertCell(1);
+
+                // Extract the program name
+                const firstLine = program.split('\n')[0];
+                const programNameMatch = firstLine.match(/^(O\d+\s*.*)$/);
+                const programName = programNameMatch ? programNameMatch[1] : `Programa ${index + 1}`;
+
+                // Create a button to toggle the content
+                const button = document.createElement('button');
+                button.className = 'btn btn-link';
+                button.type = 'button';
+                button.setAttribute('data-toggle', 'collapse');
+                button.setAttribute('data-target', `#program${index}`);
+                button.setAttribute('aria-expanded', 'false');
+                button.setAttribute('aria-controls', `program${index}`);
+                button.textContent = programName;
+
+                cell1.appendChild(button);
+
+                // Create the collapsible content
+                const div = document.createElement('div');
+                div.className = 'collapse';
+                div.id = `program${index}`;
+                div.innerHTML = program.replace(/\n/g, '<br>');
+
+                cell2.appendChild(div);
+            });
+        }
+
+
+    </script>
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
