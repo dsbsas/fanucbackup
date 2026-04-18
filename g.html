@@ -1,113 +1,117 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Separar Programas G-code</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <title>Visor de Programas FANUC</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #programList { margin-top: 20px; }
+    .program { margin-bottom: 10px; padding: 10px; border: 1px solid #ccc; }
+    .program pre { background: #f8f8f8; padding: 10px; white-space: pre-wrap; }
+    .program-header { font-weight: bold; margin-bottom: 5px; }
+    .hidden { display: none; }
+    input[type="text"] { margin-bottom: 10px; padding: 5px; width: 100%; }
+  </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="mb-4">Subir archivo G-code</h1>
-        <div class="form-group">
-            <input type="file" id="fileInput" class="form-control-file" accept=".gcode,.txt">
+<h2>Visor de Programas de Torno FANUC</h2>
+<input type="file" id="fileInput" accept=".ALL,.txt,.nc" /><br><br>
+<input type="text" id="searchBox" placeholder="Buscar por número de programa (ej: O1234)" />
+<input type="button" id="Exp_Comp" value="E/C" alt="Expandir / Comprimir todos los programas"  />
+<div id="programList"></div>
+<script>
+  let allPrograms = [];
+  // al hacer clic en E/C
+  $("#Exp_Comp").on("click", function() {
+    const isAnyHidden = $(".program pre.hidden").length > 0;
+    $(".program pre").each(function() {
+      if (isAnyHidden) {
+        $(this).removeClass("hidden");
+      } else {
+        $(this).addClass("hidden");
+      }
+    });
+  });
+  function parsePrograms(content) {
+    const lines = content.replace(/\r/g, '').split('\n');
+    const programs = [];
+    let current = [];
+    let insideProgram = false;
+    for (let line of lines) {
+      line = line.trim();
+      if (line.match(/^O\d{1,4}/)) {
+        if (current.length > 0) programs.push(current.join('\n'));
+        current = [line];
+        insideProgram = true;
+      } else if (insideProgram) {
+        current.push(line);
+        if (line.includes('M30')) {
+          programs.push(current.join('\n'));
+          current = [];
+          insideProgram = false;
+        }
+      }
+    }
+    if (current.length > 0) programs.push(current.join('\n'));
+    return programs;
+  }
+  function displayPrograms(programs) {
+    $("#programList").empty();
+    programs.forEach((prog, index) => {
+      const oMatch = prog.match(/^O\d{1,4}/m);
+      const commentMatch = prog.match(/^O\d{1,4}\((.*?)\)/m);
+      const progNumber = oMatch?.[0] || `Programa ${index + 1}`;
+      const comment = commentMatch?.[1]?.trim();
+      const filename = comment ? `${progNumber} - ${comment}` : progNumber;
+      // agrego cantidad de bites al nombre del archivo
+      const byteCount = prog.length;
+      const filenameWithBytes = `${filename} (${byteCount} bytes)`; 
+      const progId = `prog_${index}`;
+
+      $("#programList").append(`
+        <div class="program" data-prog="${progNumber.toUpperCase()}">
+          <div class="program-header">
+            ${filenameWithBytes}
+            <button onclick="$('#${progId}').toggle()">Ver/Ocultar</button>
+            <button onclick="downloadProgram(\`${sanitizeFilename(filename)}\`, \`${prog.replace(/`/g, "\\`")}\`)">Descargar</button>
+          </div>
+          <pre id="${progId}" class="hidden">${prog}</pre>
         </div>
-        <button onclick="processFile()" class="btn btn-primary mb-4">Procesar Archivo</button>
-        <h2>Programas G-code</h2>
-        <table class="table table-bordered" id="programTable">
-            <thead class="thead-dark">
-                <tr>
-                    <th>Programa</th>
-                    <th>Contenido</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Programas G-code se mostrarán aquí -->
-            </tbody>
-        </table>
-    </div>
+      `);
+    });
+  }
+  function downloadProgram(name, content) {
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name + ".nc";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  function sanitizeFilename(name) {
+    return name.replace(/[\\/:*?"<>|]/g, '_');
+  }
+  $("#fileInput").on("change", function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      const content = event.target.result;
+      allPrograms = parsePrograms(content);
+      displayPrograms(allPrograms);
+    };
+    reader.readAsText(file);
+  });
+  $("#searchBox").on("input", function () {
+    const term = $(this).val().toUpperCase();
+    $(".program").each(function () {
+      const progNum = $(this).data("prog");
+      $(this).toggle(progNum.includes(term));
+    });
+  });
+</script>
 
-    <script>
-        function processFile() {
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-            if (!file) {
-                alert('Por favor, suba un archivo primero.');
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                const content = event.target.result;
-                const programs = separatePrograms(content);
-                displayPrograms(programs);
-            };
-            reader.readAsText(file);
-        }
-
-        function separatePrograms(content) {
-            const regex = /^O\d+.*$/gm;
-            let match;
-            let programs = [];
-            let lastIndex = 0;
-
-            while ((match = regex.exec(content)) !== null) {
-                if (match.index !== 0) {
-                    programs.push(content.substring(lastIndex, match.index).trim());
-                }
-                lastIndex = match.index;
-            }
-            // Add the last program
-            if (lastIndex < content.length) {
-                programs.push(content.substring(lastIndex).trim());
-            }
-
-            return programs;
-        }
-
-        function displayPrograms(programs) {
-            const tableBody = document.getElementById('programTable').getElementsByTagName('tbody')[0];
-            tableBody.innerHTML = '';
-
-            programs.forEach((program, index) => {
-                const row = tableBody.insertRow();
-                const cell1 = row.insertCell(0);
-                const cell2 = row.insertCell(1);
-
-                // Extract the program name
-                const firstLine = program.split('\n')[0];
-                const programNameMatch = firstLine.match(/^(O\d+\s*.*)$/);
-                const programName = programNameMatch ? programNameMatch[1] : `Programa ${index + 1}`;
-
-                // Create a button to toggle the content
-                const button = document.createElement('button');
-                button.className = 'btn btn-link';
-                button.type = 'button';
-                button.setAttribute('data-toggle', 'collapse');
-                button.setAttribute('data-target', `#program${index}`);
-                button.setAttribute('aria-expanded', 'false');
-                button.setAttribute('aria-controls', `program${index}`);
-                button.textContent = programName;
-
-                cell1.appendChild(button);
-
-                // Create the collapsible content
-                const div = document.createElement('div');
-                div.className = 'collapse';
-                div.id = `program${index}`;
-                div.innerHTML = program.replace(/\n/g, '<br>');
-
-                cell2.appendChild(div);
-            });
-        }
-
-
-    </script>
-    <!-- Bootstrap JS and dependencies -->
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 </body>
 </html>
